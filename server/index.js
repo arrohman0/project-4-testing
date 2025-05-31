@@ -1,0 +1,95 @@
+import express from 'express';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import helmet from 'helmet';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+
+// Load environment variables
+dotenv.config();
+
+// Import routes
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
+import communityRoutes from './routes/communities.js';
+import courseRoutes from './routes/courses.js';
+
+// Create Express app
+const app = express();
+const httpServer = createServer(app);
+
+// Socket.io setup
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.VITE_API_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/communities', communityRoutes);
+app.use('/api/courses', courseRoutes);
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({ message: 'Welcome to ProConnect API' });
+});
+
+// Socket.io connection handler
+io.on('connection', (socket) => {
+  console.log('A user connected:', socket.id);
+
+  // Join a room (could be a community, private chat, etc.)
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+    console.log(`User ${socket.id} joined room: ${roomId}`);
+  });
+
+  // Leave a room
+  socket.on('leave-room', (roomId) => {
+    socket.leave(roomId);
+    console.log(`User ${socket.id} left room: ${roomId}`);
+  });
+
+  // Handle messages
+  socket.on('send-message', (data) => {
+    io.to(data.roomId).emit('receive-message', data);
+  });
+
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('Connected to MongoDB');
+    
+    // Start server
+    const PORT = process.env.PORT || 5000;
+    httpServer.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('MongoDB connection error:', error);
+  });
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.log('UNHANDLED REJECTION! Shutting down...');
+  console.error(err.name, err.message);
+  process.exit(1);
+});
